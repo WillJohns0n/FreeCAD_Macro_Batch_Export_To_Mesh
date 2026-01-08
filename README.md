@@ -12,6 +12,8 @@ This macro helps batch converting to mesh and exporting STL and OBJ files. It ad
   * **STL files** combine all geometry into a single mesh
 * **3MF (Assembly)** - new: export assembly as a single .3mf package with one named object per Part→Body; no external dependencies required. The writer encodes a Part->Body hierarchy (parent Part objects referencing child body objects) so importers like OrcaSlicer can preserve the logical grouping.
 
+> **Note:** Some slicers (for example, BambuStudio and OrcaSlicer) may strip per-resource object names or metadata when they import and re-save a 3MF file. In that case you may only see the top-level Part names in the slicer UI and child/body names may be lost. This is importer behavior and not caused by this macro. If you need body names to be permanently visible in a slicer, consider exporting bodies as top-level build items (not the default behavior).
+
 ![Batch export to mesh](/../media/img/screenshot1.png?raw=true "Batch export to mesh")
 
 
@@ -42,3 +44,9 @@ Fork modifications Copyright 2026 WillJohns0n.
 This work is licensed under GNU Lesser General Public License (LGPL). To view a copy of this license, visit:
 
 https://www.gnu.org/licenses/lgpl-3.0.html
+
+---
+
+# Changelog
+
+* **2026-01-08** - Added "Save as Assembly" support, OBJ grouping improvements, and a pure-Python 3MF writer that encodes Part→Body hierarchies. Note: some slicers may strip per-resource object names on import/resave; see the note in "Fork Additions" for details.

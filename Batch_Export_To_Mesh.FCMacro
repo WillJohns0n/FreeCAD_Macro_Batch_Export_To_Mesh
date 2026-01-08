@@ -43,14 +43,11 @@ __Status__ = "stable"
 __Requires__ = "FreeCAD 0.17"
 __Communication__ = "https://github.com/pgilfernandez/FreeCAD_Macro_Batch_Export_To_Mesh"
 
-import FreeCAD, FreeCADGui, Draft, Part, PartGui, math, PartDesignGui, Mesh, MeshPart, Import, os
+import FreeCAD, FreeCADGui, Part, Mesh, MeshPart, Import, os
 from FreeCAD import Base
 from PySide import QtGui, QtCore
-from math import cos, radians
-from pivy import coin
 import sys
 import subprocess
-import Mesh
 
 App = FreeCAD
 Gui = FreeCADGui
@@ -499,9 +496,10 @@ class BatchExportToMesh(QtGui.QDockWidget):
         
         # Save to file
         self.grid.addWidget(iN5,                        14, 0, 1, 3)
-        self.grid.addWidget(self.d5,                    14, 3, 1, 8)
-        # Save as Assembly moved next to File format dropdown
-        self.grid.addWidget(iN10,                       14, 10, 1, 1)
+        # Slightly shrink file format width so the "Save as Assembly" label doesn't overlap
+        self.grid.addWidget(self.d5,                    14, 3, 1, 6)
+        # Save as Assembly controls placed on same row as File format
+        self.grid.addWidget(iN10,                       14, 9, 1, 2)
         self.grid.addWidget(self.d9,                    14, 11, 1, 1)
         self.grid.addWidget(iN6,                        15, 0, 1, 3)
         self.grid.addWidget(self.d6,                    15, 3, 1, 8)
@@ -1194,23 +1192,33 @@ class BatchExportToMesh(QtGui.QDockWidget):
     def write3mfAssembly(self, file_path, mesh_infos):
         """
         Minimal 3MF writer using only Python stdlib.
-        Writes one 3MF file with a mesh object per entry in meshes/object_names
-        encoding a Part->Body hierarchy when object_names use the convention
-        "PartName_BodyName". Parent Part objects are written as assembly objects
-        containing components that reference the body objects. This lets importers
-        (like OrcaSlicer) preserve the logical hierarchy.
+        Writes one 3MF file with a mesh object per entry in mesh_infos (dicts with 'part','body','mesh').
+        Naming policy:
+          - object `name` is derived from the FreeCAD body label (sanitized)
+          - original FreeCAD labels are preserved in <metadata name="FreeCAD.PartLabel"> and
+            <metadata name="FreeCAD.BodyLabel"> elements so importers/tools can recover them
+          - names are made unique by appending a numeric suffix only when necessary
         """
         import xml.etree.ElementTree as ET
         import zipfile
         import re
         from collections import defaultdict
 
-        # Helper: sanitize name
+        # Helper: sanitize name suitable for 3MF object name
         def _safe(name):
             s = re.sub(r'[^0-9A-Za-z_\-]', '_', str(name).strip())
             return s if s else 'object'
 
-        # Group meshes using structured mesh_infos (dicts with 'part','body','mesh')
+        # Helper: produce a unique name using used_names dict
+        def _unique(base, used):
+            if base not in used:
+                used[base] = 1
+                return base
+            else:
+                used[base] += 1
+                return f"{base}_{used[base]}"
+
+        # Group meshes using structured mesh_infos
         grouped = defaultdict(list)  # part_name -> list of (body_name, mesh)
         single_objects = []  # (name, mesh) for objects without a part prefix
 
@@ -1230,24 +1238,39 @@ class BatchExportToMesh(QtGui.QDockWidget):
 
         id_counter = 1
         body_ids = []  # (part_name or None, body_name, id)
+        used_names = {}  # track used object names to ensure uniqueness
+        top_level_ids = []  # ids that should be added to build as top-level items
 
         # First, create object entries for each body (leaf meshes)
         for part_name, children in grouped.items():
-            for child_name, mesh in children:
-                safe_name = _safe(f"{part_name}_{child_name}")
+            # If this Part contains a single body, create a single object and mark it as top-level
+            if len(children) == 1:
+                child_name, mesh = children[0]
+                base_name = _safe(child_name)
+                name = _unique(base_name, used_names)
+
                 obj = ET.SubElement(resources, 'object')
                 obj.set('id', str(id_counter))
                 obj.set('type', 'model')
-                obj.set('name', safe_name)
-                mesh_el = ET.SubElement(obj, 'mesh')
+                obj.set('name', name)
 
+                # metadata: preserve original labels
+                md = ET.SubElement(obj, 'metadata')
+                md.set('name', 'FreeCAD.BodyLabel')
+                md.text = str(child_name)
+                md2 = ET.SubElement(obj, 'metadata')
+                md2.set('name', 'FreeCAD.PartLabel')
+                md2.text = str(part_name)
+                # Standard object metadata for slicer compatibility (type=object key=name)
+                ET.SubElement(obj, 'metadata', {'type': 'object', 'key': 'name', 'value': str(child_name)})
+
+                mesh_el = ET.SubElement(obj, 'mesh')
                 verts_el = ET.SubElement(mesh_el, 'vertices')
                 for p in mesh.Points:
                     v = ET.SubElement(verts_el, 'vertex')
                     v.set('x', repr(p.x))
                     v.set('y', repr(p.y))
                     v.set('z', repr(p.z))
-
                 tris_el = ET.SubElement(mesh_el, 'triangles')
                 for facet in mesh.Facets:
                     t = ET.SubElement(tris_el, 'triangle')
@@ -1257,15 +1280,63 @@ class BatchExportToMesh(QtGui.QDockWidget):
                     t.set('v3', str(int(inds[2])))
 
                 body_ids.append((part_name, child_name, id_counter))
+                top_level_ids.append(id_counter)
                 id_counter += 1
 
+            else:
+                # Multiple children: create body objects (not top-level) and we'll make a parent Part object
+                for child_name, mesh in children:
+                    base_name = _safe(child_name)
+                    name = _unique(base_name, used_names)
+
+                    obj = ET.SubElement(resources, 'object')
+                    obj.set('id', str(id_counter))
+                    obj.set('type', 'model')
+                    obj.set('name', name)
+
+                    md = ET.SubElement(obj, 'metadata')
+                    md.set('name', 'FreeCAD.BodyLabel')
+                    md.text = str(child_name)
+                    md2 = ET.SubElement(obj, 'metadata')
+                    md2.set('name', 'FreeCAD.PartLabel')
+                    md2.text = str(part_name)
+                    # Standard object metadata for slicer compatibility (type=object key=name)
+                    ET.SubElement(obj, 'metadata', {'type': 'object', 'key': 'name', 'value': str(child_name)})
+
+                    mesh_el = ET.SubElement(obj, 'mesh')
+                    verts_el = ET.SubElement(mesh_el, 'vertices')
+                    for p in mesh.Points:
+                        v = ET.SubElement(verts_el, 'vertex')
+                        v.set('x', repr(p.x))
+                        v.set('y', repr(p.y))
+                        v.set('z', repr(p.z))
+                    tris_el = ET.SubElement(mesh_el, 'triangles')
+                    for facet in mesh.Facets:
+                        t = ET.SubElement(tris_el, 'triangle')
+                        inds = facet.PointIndices
+                        t.set('v1', str(int(inds[0])))
+                        t.set('v2', str(int(inds[1])))
+                        t.set('v3', str(int(inds[2])))
+
+                    body_ids.append((part_name, child_name, id_counter))
+                    id_counter += 1
+
         # Add single objects (not belonging to any part)
-        for name, mesh in single_objects:
-            safe_name = _safe(name)
+        for name_label, mesh in single_objects:
+            base_name = _safe(name_label)
+            name = _unique(base_name, used_names)
+
             obj = ET.SubElement(resources, 'object')
             obj.set('id', str(id_counter))
             obj.set('type', 'model')
-            obj.set('name', safe_name)
+            obj.set('name', name)
+
+            md = ET.SubElement(obj, 'metadata')
+            md.set('name', 'FreeCAD.BodyLabel')
+            md.text = str(name_label)
+            # Standard object metadata for slicer compatibility (type=object key=name)
+            ET.SubElement(obj, 'metadata', {'type': 'object', 'key': 'name', 'value': str(name_label)})
+
             mesh_el = ET.SubElement(obj, 'mesh')
             verts_el = ET.SubElement(mesh_el, 'vertices')
             for p in mesh.Points:
@@ -1281,40 +1352,57 @@ class BatchExportToMesh(QtGui.QDockWidget):
                 t.set('v2', str(int(inds[1])))
                 t.set('v3', str(int(inds[2])))
             # mark as top-level (part_name None)
-            body_ids.append((None, name, id_counter))
+            body_ids.append((None, name_label, id_counter))
+            top_level_ids.append(id_counter)
             id_counter += 1
 
         # Now create parent Part objects that reference child bodies using <components>
         part_parent_ids = {}
         for part_name, children in grouped.items():
-            # create parent object
-            parent_id = id_counter
-            obj = ET.SubElement(resources, 'object')
-            obj.set('id', str(parent_id))
-            obj.set('type', 'model')
-            obj.set('name', _safe(part_name))
-            comps_el = ET.SubElement(obj, 'components')
+            # If this Part contains more than one body, create a parent object and make it top-level
+            if len(children) > 1:
+                parent_base = _safe(part_name)
+                parent_name = _unique(parent_base, used_names)
 
-            # find child ids
-            for child_name, mesh in children:
-                # search in body_ids for matching tuple
-                match = next((bid for bid in body_ids if bid[0] == part_name and bid[1] == child_name), None)
-                if match:
-                    child_id = match[2]
-                    c = ET.SubElement(comps_el, 'component')
-                    c.set('objectid', str(child_id))
-            part_parent_ids[part_name] = parent_id
-            id_counter += 1
+                parent_id = id_counter
+                obj = ET.SubElement(resources, 'object')
+                obj.set('id', str(parent_id))
+                obj.set('type', 'model')
+                obj.set('name', parent_name)
+
+                # metadata to preserve original Part label
+                mdp = ET.SubElement(obj, 'metadata')
+                mdp.set('name', 'FreeCAD.PartLabel')
+                mdp.text = str(part_name)
+                # Standard object metadata for slicer compatibility (type=object key=name)
+                ET.SubElement(obj, 'metadata', {'type': 'object', 'key': 'name', 'value': str(part_name)})
+
+                comps_el = ET.SubElement(obj, 'components')
+
+                # find child ids
+                for child_name, mesh in children:
+                    # search in body_ids for matching tuple
+                    match = next((bid for bid in body_ids if bid[0] == part_name and bid[1] == child_name), None)
+                    if match:
+                        child_id = match[2]
+                        c = ET.SubElement(comps_el, 'component')
+                        c.set('objectid', str(child_id))
+                part_parent_ids[part_name] = parent_id
+                id_counter += 1
 
         # Build section: include parent parts as top-level items plus single objects that had no part
         build = ET.SubElement(model, 'build')
-        # parent parts first
+        # Add parent parts first, ensuring each object id is added only once
+        added_build_ids = set()
         for part_name, pid in part_parent_ids.items():
-            ET.SubElement(build, 'item', {'objectid': str(pid)})
-        # then single objects (None part) as top-level items
-        for part_name, name, bid in body_ids:
-            if part_name is None:
-                ET.SubElement(build, 'item', {'objectid': str(bid)})
+            if pid not in added_build_ids:
+                ET.SubElement(build, 'item', {'objectid': str(pid)})
+                added_build_ids.add(pid)
+        # then other top-level items (single objects and single-body parts), skip duplicates
+        for tid in top_level_ids:
+            if tid not in added_build_ids:
+                ET.SubElement(build, 'item', {'objectid': str(tid)})
+                added_build_ids.add(tid)
 
         # Serialize XML
         model_xml = ET.tostring(model, encoding='utf-8', method='xml')
