@@ -999,6 +999,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
                 combined_mesh = Mesh.Mesh()
                 mesh_list = []  # For OBJ with separate objects
                 object_names = []  # Names for each mesh in OBJ
+                mesh_infos = []  # Structured info: dicts with 'part', 'body', 'mesh'
                 
                 for i in range(quantity):
                     selected_obj = Gui.Selection.getSelection()[i]
@@ -1022,8 +1023,10 @@ class BatchExportToMesh(QtGui.QDockWidget):
                                         mesh = MeshPart.meshFromShape(Shape=shape, LinearDeflection=surface, AngularDeflection=angular, Relative=relative)
                                         combined_mesh.addMesh(mesh)
                                         mesh_list.append(mesh)
-                                        # Name as PartName_ChildName for grouped hierarchy
+                                        # Name as PartName_ChildName for backward compatibility
                                         object_names.append("{}_{}".format(part_label, child.Label))
+                                        # Add structured info for 3MF hierarchy
+                                        mesh_infos.append({'part': part_label, 'body': child.Label, 'mesh': mesh})
                                         
                                         if dev_mode:
                                             self.message("  Added mesh for {}_{}".format(part_label, child.Label))
@@ -1045,6 +1048,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
                             combined_mesh.addMesh(mesh)
                             mesh_list.append(mesh)
                             object_names.append(selected_obj.Label)
+                            mesh_infos.append({'part': None, 'body': selected_obj.Label, 'mesh': mesh})
                         except Exception as e:
                             if dev_mode:
                                 self.message("  Could not mesh {}: {}".format(selected_obj.Label, str(e)))
@@ -1067,7 +1071,8 @@ class BatchExportToMesh(QtGui.QDockWidget):
                 if self.d5.currentText() == "3D Manufacturing Format (.3MF)":
                     # Write 3MF assembly (no external deps)
                     filename = os.path.join(savePath, final_name + ".3mf")
-                    self.write3mfAssembly(filename, mesh_list, object_names)
+                    # Pass structured mesh infos (part/body/mesh) for hierarchical naming
+                    self.write3mfAssembly(filename, mesh_infos)
                 
                 if dev_mode:
                     self.message("\n-- Assembly exported to: " + filename + " --")
@@ -1185,7 +1190,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
                 f.write("\n")
                 f.write("\n")
 
-    def write3mfAssembly(self, file_path, meshes, object_names):
+    def write3mfAssembly(self, file_path, mesh_infos):
         """
         Minimal 3MF writer using only Python stdlib.
         Writes one 3MF file with a mesh object per entry in meshes/object_names
