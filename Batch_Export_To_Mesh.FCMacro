@@ -1189,53 +1189,125 @@ class BatchExportToMesh(QtGui.QDockWidget):
         """
         Minimal 3MF writer using only Python stdlib.
         Writes one 3MF file with a mesh object per entry in meshes/object_names
-        encoding simple assembly structure (objects + build items). This avoids
-        external dependencies so it runs inside FreeCAD's Python.
+        encoding a Part->Body hierarchy when object_names use the convention
+        "PartName_BodyName". Parent Part objects are written as assembly objects
+        containing components that reference the body objects. This lets importers
+        (like OrcaSlicer) preserve the logical hierarchy.
         """
         import xml.etree.ElementTree as ET
         import zipfile
         import re
+        from collections import defaultdict
 
         # Helper: sanitize name
         def _safe(name):
             s = re.sub(r'[^0-9A-Za-z_\-]', '_', str(name).strip())
             return s if s else 'object'
 
-        model = ET.Element('model')
-        model.set('unit', 'millimeter')
+        # Group meshes by part prefix if present
+        grouped = defaultdict(list)  # part_name -> list of (body_name, mesh)
+        single_objects = []  # (name, mesh) for objects without a part prefix
+
+        for mesh, obj_name in zip(meshes, object_names):
+            # Try splitting on the first underscore to detect Part_Body convention
+            if '_' in obj_name:
+                part, child = obj_name.split('_', 1)
+                grouped[part].append((child, mesh))
+            else:
+                single_objects.append((obj_name, mesh))
+
+        # Create model root with required namespace
+        NS = 'http://schemas.microsoft.com/3dmanufacturing/2013/01'
+        model = ET.Element('model', {'unit': 'millimeter', 'xmlns': NS})
         resources = ET.SubElement(model, 'resources')
 
-        # Create mesh resources (each as an object)
-        for idx, (mesh, obj_name) in enumerate(zip(meshes, object_names), start=1):
-            safe_name = _safe(obj_name)
+        id_counter = 1
+        body_ids = []  # (part_name or None, body_name, id)
+
+        # First, create object entries for each body (leaf meshes)
+        for part_name, children in grouped.items():
+            for child_name, mesh in children:
+                safe_name = _safe(f"{part_name}_{child_name}")
+                obj = ET.SubElement(resources, 'object')
+                obj.set('id', str(id_counter))
+                obj.set('type', 'model')
+                obj.set('name', safe_name)
+                mesh_el = ET.SubElement(obj, 'mesh')
+
+                verts_el = ET.SubElement(mesh_el, 'vertices')
+                for p in mesh.Points:
+                    v = ET.SubElement(verts_el, 'vertex')
+                    v.set('x', repr(p.x))
+                    v.set('y', repr(p.y))
+                    v.set('z', repr(p.z))
+
+                tris_el = ET.SubElement(mesh_el, 'triangles')
+                for facet in mesh.Facets:
+                    t = ET.SubElement(tris_el, 'triangle')
+                    inds = facet.PointIndices
+                    t.set('v1', str(int(inds[0])))
+                    t.set('v2', str(int(inds[1])))
+                    t.set('v3', str(int(inds[2])))
+
+                body_ids.append((part_name, child_name, id_counter))
+                id_counter += 1
+
+        # Add single objects (not belonging to any part)
+        for name, mesh in single_objects:
+            safe_name = _safe(name)
             obj = ET.SubElement(resources, 'object')
-            obj.set('id', str(idx))
+            obj.set('id', str(id_counter))
             obj.set('type', 'model')
             obj.set('name', safe_name)
             mesh_el = ET.SubElement(obj, 'mesh')
-
-            # vertices
             verts_el = ET.SubElement(mesh_el, 'vertices')
             for p in mesh.Points:
                 v = ET.SubElement(verts_el, 'vertex')
-                v.set('x', str(p.x))
-                v.set('y', str(p.y))
-                v.set('z', str(p.z))
-
-            # triangles
+                v.set('x', repr(p.x))
+                v.set('y', repr(p.y))
+                v.set('z', repr(p.z))
             tris_el = ET.SubElement(mesh_el, 'triangles')
             for facet in mesh.Facets:
                 t = ET.SubElement(tris_el, 'triangle')
-                indices = facet.PointIndices
-                t.set('v1', str(indices[0]))
-                t.set('v2', str(indices[1]))
-                t.set('v3', str(indices[2]))
+                inds = facet.PointIndices
+                t.set('v1', str(int(inds[0])))
+                t.set('v2', str(int(inds[1])))
+                t.set('v3', str(int(inds[2])))
+            # mark as top-level (part_name None)
+            body_ids.append((None, name, id_counter))
+            id_counter += 1
 
-        # Build section (add items referencing objects)
+        # Now create parent Part objects that reference child bodies using <components>
+        part_parent_ids = {}
+        for part_name, children in grouped.items():
+            # create parent object
+            parent_id = id_counter
+            obj = ET.SubElement(resources, 'object')
+            obj.set('id', str(parent_id))
+            obj.set('type', 'model')
+            obj.set('name', _safe(part_name))
+            comps_el = ET.SubElement(obj, 'components')
+
+            # find child ids
+            for child_name, mesh in children:
+                # search in body_ids for matching tuple
+                match = next((bid for bid in body_ids if bid[0] == part_name and bid[1] == child_name), None)
+                if match:
+                    child_id = match[2]
+                    c = ET.SubElement(comps_el, 'component')
+                    c.set('objectid', str(child_id))
+            part_parent_ids[part_name] = parent_id
+            id_counter += 1
+
+        # Build section: include parent parts as top-level items plus single objects that had no part
         build = ET.SubElement(model, 'build')
-        for idx in range(1, len(meshes) + 1):
-            item = ET.SubElement(build, 'item')
-            item.set('objectid', str(idx))
+        # parent parts first
+        for part_name, pid in part_parent_ids.items():
+            ET.SubElement(build, 'item', {'objectid': str(pid)})
+        # then single objects (None part) as top-level items
+        for part_name, name, bid in body_ids:
+            if part_name is None:
+                ET.SubElement(build, 'item', {'objectid': str(bid)})
 
         # Serialize XML
         model_xml = ET.tostring(model, encoding='utf-8', method='xml')
@@ -1243,9 +1315,13 @@ class BatchExportToMesh(QtGui.QDockWidget):
         # Content types file
         content_types = b'<?xml version="1.0" encoding="utf-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n</Types>'
 
+        # _rels/.rels content: point to 3D/3dmodel.model
+        rels_xml = b'<?xml version="1.0" encoding="utf-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n  <Relationship Id="rId1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" Target="/3D/3dmodel.model"/>\n</Relationships>'
+
         # Write zip (.3mf)
         with zipfile.ZipFile(file_path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
             z.writestr('[Content_Types].xml', content_types)
+            z.writestr('_rels/.rels', rels_xml)
             z.writestr('3D/3dmodel.model', model_xml)
 
 

@@ -10,7 +10,7 @@ This macro helps batch converting to mesh and exporting STL and OBJ files. It ad
   * **Part containers** (App::Part) are automatically expanded to include all child bodies
   * **OBJ files** export with separate named objects for each body (named as `PartName_BodyName`), making them easy to work with in Blender and other 3D software
   * **STL files** combine all geometry into a single mesh
-* **3MF (Assembly)** - new: export assembly as a single .3mf package with one named object per Part→Body; no external dependencies required. OrcaSlicer should preserve these objects when importing the 3MF.
+* **3MF (Assembly)** - new: export assembly as a single .3mf package with one named object per Part→Body; no external dependencies required. The writer encodes a Part->Body hierarchy (parent Part objects referencing child body objects) so importers like OrcaSlicer can preserve the logical grouping.
 
 ![Batch export to mesh](/../media/img/screenshot1.png?raw=true "Batch export to mesh")
 
