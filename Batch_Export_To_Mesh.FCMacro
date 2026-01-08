@@ -43,7 +43,7 @@ __Status__ = "stable"
 __Requires__ = "FreeCAD 0.17"
 __Communication__ = "https://github.com/pgilfernandez/FreeCAD_Macro_Batch_Export_To_Mesh"
 
-import FreeCAD, FreeCADGui, Part, Mesh, MeshPart, Import, os
+import FreeCAD, FreeCADGui, Part, Mesh, MeshPart, Import, os, math
 from FreeCAD import Base
 from PySide import QtGui, QtCore
 import sys
