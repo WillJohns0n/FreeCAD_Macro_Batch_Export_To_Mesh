@@ -51,12 +51,3 @@ https://www.gnu.org/licenses/lgpl-3.0.html
 
 * **2026-01-08** - Added "Save as Assembly" support, OBJ grouping improvements, and a pure-Python 3MF writer that encodes Part→Body hierarchies. Note: some slicers may strip per-resource object names on import/resave; see the note in "Fork Additions" for details.
 
-# Development & testing
-
-A set of small tools is included in the `tools/` directory to inspect generated 3MF files and FreeCAD documents:
-
-- `tools/inspect_3mf_build.py` — lists resource object ids and top-level build items.
-- `tools/inspect_3mf_detailed.py` — prints per-object metadata and components for debugging imports.
-- `tools/inspect_freecad_tree.py` — run inside FreeCAD to dump the Part→Body tree as JSON.
-
-These are useful for verifying that exported 3MFs contain the intended object metadata and hierarchy.
