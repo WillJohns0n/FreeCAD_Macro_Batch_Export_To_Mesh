@@ -153,6 +153,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
         defaultConfig.SetFloat("AngularDeviation", 5.0)
         defaultConfig.SetString("FileNameOption", "Label")
         defaultConfig.SetBool("LocalCoordinates", True)
+        defaultConfig.SetBool("SaveAsAssembly", False)
         defaultConfig.SetString("FileFormat", "Stereolithography (.STL)")
         defaultConfig.SetString("FileSavingDirectory", "./")
         # Establecer ActiveConfig solo al crear la configuración por defecto por primera vez
@@ -351,6 +352,13 @@ class BatchExportToMesh(QtGui.QDockWidget):
         self.d8.setChecked(True)
         self.d8.setToolTip("if TRUE the .STL origin will match with the part one. It's a very useful option when you design multipart files or assemblies")
 
+        # Save as Assembly
+        iN10 = QtGui.QLabel("Save as Assembly:")
+        iN10.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.d9 = QtGui.QCheckBox()
+        self.d9.setChecked(False)
+        self.d9.setToolTip("If checked, all selected objects will be combined into a single mesh file instead of separate files.")
+
         # Presets
         iN9 = QtGui.QLabel("Preset:")
         iN9.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
@@ -473,26 +481,28 @@ class BatchExportToMesh(QtGui.QDockWidget):
         self.grid.addWidget(self.d4,                    8, 6, 1, 6)
         self.grid.addWidget(iN8,                        9, 0, 1, 3)
         self.grid.addWidget(self.d8,                    9, 3, 1, 1)
-        self.grid.addWidget(self.convertStlButton,      10, 0, 1, 12)
+        self.grid.addWidget(iN10,                       10, 0, 1, 3)
+        self.grid.addWidget(self.d9,                    10, 3, 1, 1)
+        self.grid.addWidget(self.convertStlButton,      11, 0, 1, 12)
         
-        self.grid.addItem(spacer2,                      11, 0, 1, 12)
-        self.grid.addWidget(line_separator2,            12, 0, 1, 12)
+        self.grid.addItem(spacer2,                      12, 0, 1, 12)
+        self.grid.addWidget(line_separator2,            13, 0, 1, 12)
         
         # Save to file
-        self.grid.addWidget(iN5,                        13, 0, 1, 3)
-        self.grid.addWidget(self.d5,                    13, 3, 1, 9)
-        self.grid.addWidget(iN6,                        14, 0, 1, 3)
-        self.grid.addWidget(self.d6,                    14, 3, 1, 8)
-        self.grid.addWidget(self.SavePath,              14, 11, 1, 1)
-        self.grid.addWidget(self.saveStl,               15, 0, 1, 8)
-        self.grid.addWidget(self.openPath,              15, 8, 1, 4)
+        self.grid.addWidget(iN5,                        14, 0, 1, 3)
+        self.grid.addWidget(self.d5,                    14, 3, 1, 9)
+        self.grid.addWidget(iN6,                        15, 0, 1, 3)
+        self.grid.addWidget(self.d6,                    15, 3, 1, 8)
+        self.grid.addWidget(self.SavePath,              15, 11, 1, 1)
+        self.grid.addWidget(self.saveStl,               16, 0, 1, 8)
+        self.grid.addWidget(self.openPath,              16, 8, 1, 4)
         
-        self.grid.addItem(spacer3,                      16, 0, 1, 12)
+        self.grid.addItem(spacer3,                      17, 0, 1, 12)
         
         # Info footer
-        self.grid.addWidget(self.help,                  17, 0, 1, 1)
-        self.grid.addWidget(self.infoLabel,             17, 1, 1, 10)
-        self.grid.addWidget(info,                       17, 11, 1, 1)
+        self.grid.addWidget(self.help,                  18, 0, 1, 1)
+        self.grid.addWidget(self.infoLabel,             18, 1, 1, 10)
+        self.grid.addWidget(info,                       18, 11, 1, 1)
 
         # Fixed label widths
         iN1.setFixedWidth(140)
@@ -577,6 +587,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
         else:
             self.d7c.setChecked(True)
         self.d8.setChecked(configGroup.GetBool("LocalCoordinates", True))
+        self.d9.setChecked(configGroup.GetBool("SaveAsAssembly", False))
         fileFormat = configGroup.GetString("FileFormat", "Stereolithography (.STL)")
         index = self.d5.findText(fileFormat)
         if index != -1:
@@ -607,6 +618,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
         else:
             newConfigGroup.SetString("FileNameOption", "Custom")
         newConfigGroup.SetBool("LocalCoordinates", self.d8.isChecked())
+        newConfigGroup.SetBool("SaveAsAssembly", self.d9.isChecked())
         newConfigGroup.SetString("FileFormat", self.d5.currentText())
         newConfigGroup.SetString("FileSavingDirectory", self.d6.text())
         # Update the list of configurations
@@ -962,67 +974,108 @@ class BatchExportToMesh(QtGui.QDockWidget):
             quantity = len(selection)
             if dev_mode:
                 self.message("\n-- " + str(quantity) + " objects selected --")
-            i = 0
-            namesArray = []
-            labelsArray = []
-            while i < quantity:
-                obj=[]
-                part = Gui.Selection.getSelection()[i]
-                shape = part.Shape.copy(False)
-
-                # Set part coordinates (local or global)
-                if self.d8.isChecked():
-                    shape.Placement = App.Placement(App.Vector(0,0,0), App.Rotation(App.Vector(0,0,1),0), App.Vector(0,0,0))
-                else:
-                    shape.Placement = part.getGlobalPlacement()
-
-                # Create mesh
-                mesh = MeshPart.meshFromShape(Shape=shape, LinearDeflection=surface, AngularDeflection=angular, Relative=relative)
-
-                # Name mesh
-                if self.d7a.isChecked():
-                    final_name = Gui.Selection.getSelection()[i].Label
-                elif self.d7b.isChecked():
-                    final_name = App.ActiveDocument.Name + "_" + str(i+1)
-                else:
-                    final_name = name + "_" + str(i+1)
-
-                labelsArray.append(final_name)
-
-                # Check if the path exists:
-                if not os.path.exists(savePath):
-                    FreeCAD.Console.PrintWarning("\nThe path doesn't exist, creating it...")
-                    os.makedirs(savePath, exist_ok=True)
-                else:
-                    if dev_mode:
-                        print("\nThe path exist, continuing...")
-
-                if self.d5.currentText() == "Stereolithography (.STL)":
-                    # export mesh to STL
-                    filename = os.path.join(savePath, labelsArray[i] + ".stl")
-                    mesh.write(filename)
-                if self.d5.currentText() == "Alias mesh (.OBJ)":
-                    # export mesh to OBJ
-                    filename = os.path.join(savePath, labelsArray[i] + ".obj")
-                    obj = []
-                    obj.append(part)
-                    Mesh.export(obj, filename)
-
-                if dev_mode:
-                    self.message("\n-- 1 mesh exported to file at: " + filename + " --")
-                del mesh, obj, part, shape
-                i += 1
-
-            i = 0
-            while i < quantity:
-                if dev_mode:
-                    self.message("\n-- " + str(labelsArray[i]) + " exported --")
-                i += 1
-
-            if dev_mode:
-                FreeCAD.Console.PrintMessage("\nSaved")
             
-            self.infoMessages(str(quantity) + " objects exported to file","positive")
+            # Check if the path exists:
+            if not os.path.exists(savePath):
+                FreeCAD.Console.PrintWarning("\nThe path doesn't exist, creating it...")
+                os.makedirs(savePath, exist_ok=True)
+            
+            # Save as Assembly mode - combine all meshes into one file
+            if self.d9.isChecked():
+                if dev_mode:
+                    self.message("\n-- Assembly mode: combining meshes --")
+                
+                combined_mesh = Mesh.Mesh()
+                
+                for i in range(quantity):
+                    part = Gui.Selection.getSelection()[i]
+                    shape = part.Shape.copy(False)
+                    
+                    # Set part coordinates (local or global)
+                    if self.d8.isChecked():
+                        shape.Placement = App.Placement(App.Vector(0,0,0), App.Rotation(App.Vector(0,0,1),0), App.Vector(0,0,0))
+                    else:
+                        shape.Placement = part.getGlobalPlacement()
+                    
+                    # Create mesh and add to combined
+                    mesh = MeshPart.meshFromShape(Shape=shape, LinearDeflection=surface, AngularDeflection=angular, Relative=relative)
+                    combined_mesh.addMesh(mesh)
+                
+                # Determine assembly filename
+                if self.d7a.isChecked():
+                    final_name = Gui.Selection.getSelection()[0].Label + "_assembly"
+                elif self.d7b.isChecked():
+                    final_name = App.ActiveDocument.Name + "_assembly"
+                else:
+                    final_name = name if name else "assembly"
+                
+                if self.d5.currentText() == "Stereolithography (.STL)":
+                    filename = os.path.join(savePath, final_name + ".stl")
+                    combined_mesh.write(filename)
+                if self.d5.currentText() == "Alias mesh (.OBJ)":
+                    filename = os.path.join(savePath, final_name + ".obj")
+                    combined_mesh.write(filename)
+                
+                if dev_mode:
+                    self.message("\n-- Assembly exported to: " + filename + " --")
+                
+                self.infoMessages(str(quantity) + " objects combined into assembly","positive")
+            
+            # Individual files mode (original behavior)
+            else:
+                i = 0
+                namesArray = []
+                labelsArray = []
+                while i < quantity:
+                    obj=[]
+                    part = Gui.Selection.getSelection()[i]
+                    shape = part.Shape.copy(False)
+
+                    # Set part coordinates (local or global)
+                    if self.d8.isChecked():
+                        shape.Placement = App.Placement(App.Vector(0,0,0), App.Rotation(App.Vector(0,0,1),0), App.Vector(0,0,0))
+                    else:
+                        shape.Placement = part.getGlobalPlacement()
+
+                    # Create mesh
+                    mesh = MeshPart.meshFromShape(Shape=shape, LinearDeflection=surface, AngularDeflection=angular, Relative=relative)
+
+                    # Name mesh
+                    if self.d7a.isChecked():
+                        final_name = Gui.Selection.getSelection()[i].Label
+                    elif self.d7b.isChecked():
+                        final_name = App.ActiveDocument.Name + "_" + str(i+1)
+                    else:
+                        final_name = name + "_" + str(i+1)
+
+                    labelsArray.append(final_name)
+
+                    if self.d5.currentText() == "Stereolithography (.STL)":
+                        # export mesh to STL
+                        filename = os.path.join(savePath, labelsArray[i] + ".stl")
+                        mesh.write(filename)
+                    if self.d5.currentText() == "Alias mesh (.OBJ)":
+                        # export mesh to OBJ
+                        filename = os.path.join(savePath, labelsArray[i] + ".obj")
+                        obj = []
+                        obj.append(part)
+                        Mesh.export(obj, filename)
+
+                    if dev_mode:
+                        self.message("\n-- 1 mesh exported to file at: " + filename + " --")
+                    del mesh, obj, part, shape
+                    i += 1
+
+                i = 0
+                while i < quantity:
+                    if dev_mode:
+                        self.message("\n-- " + str(labelsArray[i]) + " exported --")
+                    i += 1
+
+                if dev_mode:
+                    FreeCAD.Console.PrintMessage("\nSaved")
+                
+                self.infoMessages(str(quantity) + " objects exported to file","positive")
 
         App.ActiveDocument.recompute()
         if dev_mode:
