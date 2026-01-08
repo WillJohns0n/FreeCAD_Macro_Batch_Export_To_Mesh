@@ -368,7 +368,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
         iN10.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         self.d9 = QtGui.QCheckBox()
         self.d9.setChecked(False)
-        self.d9.setToolTip("If checked, all selected objects will be combined into a single mesh file instead of separate files.")
+        self.d9.setToolTip("If checked: export a single assembly file.\n- STL: all geometry combined into one mesh.\n- OBJ: one .obj with named groups (may be split by slicers if objects contain disconnected components).\n- 3MF: preserves Part->Body hierarchy (recommended for slicer object grouping).\nIf unchecked: each selected object (or Part container) is exported as separate files (STL/OBJ/3MF supported; 3MF will write one .3mf per object).")
 
         # Presets
         iN9 = QtGui.QLabel("Preset:")
@@ -971,16 +971,11 @@ class BatchExportToMesh(QtGui.QDockWidget):
                 obj = []
                 obj.append(part)
                 Mesh.export(obj, filename)
-
-            if dev_mode:
-                self.message("\n-- 1 mesh exported to file at: " + filename + " --")
-            del mesh, obj, part, shape
-
-            if dev_mode:
-                FreeCAD.Console.PrintMessage("\nSaved")
-        
-            self.infoMessages("1 object exported to file","positive")
-
+                if self.d5.currentText() == "3D Manufacturing Format (.3MF)":
+                    # export single object as 3MF
+                    filename = os.path.join(savePath, final_name + ".3mf")
+                    mesh_info = [{'part': None, 'body': final_name, 'mesh': mesh}]
+                    self.write3mfAssembly(filename, mesh_info)
         else:
             quantity = len(selection)
             if dev_mode:
@@ -1118,6 +1113,11 @@ class BatchExportToMesh(QtGui.QDockWidget):
                         obj = []
                         obj.append(part)
                         Mesh.export(obj, filename)
+                    if self.d5.currentText() == "3D Manufacturing Format (.3MF)":
+                        # export single object as 3MF
+                        filename = os.path.join(savePath, labelsArray[i] + ".3mf")
+                        mesh_info = [{'part': None, 'body': labelsArray[i], 'mesh': mesh}]
+                        self.write3mfAssembly(filename, mesh_info)
 
                     if dev_mode:
                         self.message("\n-- 1 mesh exported to file at: " + filename + " --")
