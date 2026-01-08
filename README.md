@@ -1,6 +1,6 @@
 # Description
 
-This macro helps batch converting to mesh and exporting STL and OBJ files. It adds a GUI for speeding up the conversion and file saving of selected objects.
+This macro helps batch converting to mesh and exporting STL, OBJ and 3mf files. It adds a GUI for speeding up the conversion and file saving of selected objects.
 
 **This is a fork** of the original [Batch Export to Mesh](https://github.com/pgilfernandez/FreeCAD_Macro_Batch_Export_To_Mesh) by Pablo Gil Fernández.
 
@@ -49,5 +49,5 @@ https://www.gnu.org/licenses/lgpl-3.0.html
 
 # Changelog
 
-* **2026-01-08** - Added "Save as Assembly" support, OBJ grouping improvements, and a pure-Python 3MF writer that encodes Part→Body hierarchies. Note: some slicers may strip per-resource object names on import/resave; see the note in "Fork Additions" for details.
+* **2026-01-08** - Added "Save as Assembly" support, OBJ grouping improvements, and a pure-Python 3MF writer that encodes Part→Body hierarchies. Tested on FreeCAD 1.1. Note: some slicers may strip per-resource object names on import/resave; see the note in "Fork Additions" for details.
 

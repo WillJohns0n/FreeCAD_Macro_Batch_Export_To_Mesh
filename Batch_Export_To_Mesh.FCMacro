@@ -30,8 +30,10 @@
 #
 # ====================================================================================
 __Title__   = "Batch export to mesh"
-__Author__  = "Pablo Gil Fernández (fork by WillJohns0n)"
-__Version__ = "2.17"
+__Author__  = "Pablo Gil Fernández (original); fork maintained by WillJohns0n"
+__Maintainer__ = "WillJohns0n <https://github.com/WillJohns0n>"
+__Repository__ = "https://github.com/WillJohns0n/FreeCAD_Macro_Batch_Export_To_Mesh"
+__Version__ = "2.18"
 __Date__    = "2026-01-08"
 __Comment__ = "This macro helps batch converting to mesh and exporting STL and OBJ files"
 __Web__ = "https://github.com/pgilfernandez/FreeCAD_Macro_Batch_Export_To_Mesh"
@@ -40,7 +42,7 @@ __Icon__  = "/usr/lib/freecad/Mod/Mesh/Resources/icons/MeshWorkbench.svg"
 # __IconW__  = "C:/Documents and Settings/YourUserName/Application Data/FreeCAD"
 __Help__ = "https://forum.freecadweb.org/viewtopic.php?f=22&t=41219"
 __Status__ = "stable"
-__Requires__ = "FreeCAD 0.17"
+__Requires__ = "FreeCAD >= 1.1"
 __Communication__ = "https://github.com/pgilfernandez/FreeCAD_Macro_Batch_Export_To_Mesh"
 
 import FreeCAD, FreeCADGui, Part, Mesh, MeshPart, Import, os, math
