@@ -1231,8 +1231,8 @@ class BatchExportToMesh(QtGui.QDockWidget):
             else:
                 single_objects.append((body_name, mesh))
 
-        # Create model root with required namespace
-        NS = 'http://schemas.microsoft.com/3dmanufacturing/2013/01'
+        # Create model root with recommended namespace (newer importers use the 2015 core namespace)
+        NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
         model = ET.Element('model', {'unit': 'millimeter', 'xmlns': NS})
         resources = ET.SubElement(model, 'resources')
 
@@ -1404,8 +1404,8 @@ class BatchExportToMesh(QtGui.QDockWidget):
                 ET.SubElement(build, 'item', {'objectid': str(tid)})
                 added_build_ids.add(tid)
 
-        # Serialize XML
-        model_xml = ET.tostring(model, encoding='utf-8', method='xml')
+        # Serialize XML (add XML declaration explicitly for better compatibility)
+        model_xml = b'<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(model, encoding='utf-8', method='xml')
 
         # Content types file
         content_types = b'<?xml version="1.0" encoding="utf-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n</Types>'
