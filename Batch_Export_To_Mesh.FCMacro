@@ -11,18 +11,28 @@
 # This macro helps exporting STL and OBJ files. It adds a GUI for speeding up the conversion
 # and file saving of the selected objects.
 #
+# FORK MODIFICATIONS
+# ====================================================================================
+# Added "Save as Assembly" option to combine multiple selected objects into a single
+# mesh file, useful for exporting complete assemblies as one STL/OBJ.
+# - Part containers (App::Part) are expanded to include all child bodies
+# - OBJ files preserve separate named objects (PartName_BodyName) for each body
+# - STL files combine all geometry into a single mesh
+# Fork maintained by: WillJohns0n
+#
 # LICENSE
 # ====================================================================================
-# Copyright (c) 2024 Pablo Gil Fernandez
+# Original work Copyright (c) 2024 Pablo Gil Fernandez
+# Modifications Copyright (c) 2026 WillJohns0n
 #
 # This work is licensed under GNU Lesser General Public License (LGPL).
 # To view a copy of this license, visit https://www.gnu.org/licenses/lgpl-3.0.html
 #
 # ====================================================================================
 __Title__   = "Batch export to mesh"
-__Author__  = "Pablo Gil Fernández"
-__Version__ = "2.16"
-__Date__    = "2024-10-11"
+__Author__  = "Pablo Gil Fernández (fork by WillJohns0n)"
+__Version__ = "2.17"
+__Date__    = "2026-01-08"
 __Comment__ = "This macro helps batch converting to mesh and exporting STL and OBJ files"
 __Web__ = "https://github.com/pgilfernandez/FreeCAD_Macro_Batch_Export_To_Mesh"
 __Wiki__ = "https://wiki.freecad.org/Macro_Batch_Export_To_Mesh"
@@ -314,6 +324,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
         self.d5 = QtGui.QComboBox()
         self.d5.addItem("Stereolithography (.STL)")
         self.d5.addItem("Alias mesh (.OBJ)")
+        self.d5.addItem("3D Manufacturing Format (.3MF)")
         self.d5.setToolTip("File format to export")
         self.d5.setCurrentIndex(0)  # sets default option
 
@@ -986,20 +997,57 @@ class BatchExportToMesh(QtGui.QDockWidget):
                     self.message("\n-- Assembly mode: combining meshes --")
                 
                 combined_mesh = Mesh.Mesh()
+                mesh_list = []  # For OBJ with separate objects
+                object_names = []  # Names for each mesh in OBJ
                 
                 for i in range(quantity):
-                    part = Gui.Selection.getSelection()[i]
-                    shape = part.Shape.copy(False)
+                    selected_obj = Gui.Selection.getSelection()[i]
                     
-                    # Set part coordinates (local or global)
-                    if self.d8.isChecked():
-                        shape.Placement = App.Placement(App.Vector(0,0,0), App.Rotation(App.Vector(0,0,1),0), App.Vector(0,0,0))
+                    # Check if this is a Part container (App::Part)
+                    if selected_obj.TypeId == 'App::Part':
+                        # Get all meshable children from this Part container
+                        part_label = selected_obj.Label
+                        if hasattr(selected_obj, 'Group'):
+                            for child in selected_obj.Group:
+                                if hasattr(child, 'Shape') and not child.Shape.isNull():
+                                    try:
+                                        shape = child.Shape.copy(False)
+                                        
+                                        # Set coordinates (local or global)
+                                        if self.d8.isChecked():
+                                            shape.Placement = App.Placement(App.Vector(0,0,0), App.Rotation(App.Vector(0,0,1),0), App.Vector(0,0,0))
+                                        else:
+                                            shape.Placement = child.getGlobalPlacement()
+                                        
+                                        mesh = MeshPart.meshFromShape(Shape=shape, LinearDeflection=surface, AngularDeflection=angular, Relative=relative)
+                                        combined_mesh.addMesh(mesh)
+                                        mesh_list.append(mesh)
+                                        # Name as PartName_ChildName for grouped hierarchy
+                                        object_names.append("{}_{}".format(part_label, child.Label))
+                                        
+                                        if dev_mode:
+                                            self.message("  Added mesh for {}_{}".format(part_label, child.Label))
+                                    except Exception as e:
+                                        if dev_mode:
+                                            self.message("  Could not mesh {}: {}".format(child.Label, str(e)))
                     else:
-                        shape.Placement = part.getGlobalPlacement()
-                    
-                    # Create mesh and add to combined
-                    mesh = MeshPart.meshFromShape(Shape=shape, LinearDeflection=surface, AngularDeflection=angular, Relative=relative)
-                    combined_mesh.addMesh(mesh)
+                        # Regular object - mesh it directly
+                        try:
+                            shape = selected_obj.Shape.copy(False)
+                            
+                            # Set part coordinates (local or global)
+                            if self.d8.isChecked():
+                                shape.Placement = App.Placement(App.Vector(0,0,0), App.Rotation(App.Vector(0,0,1),0), App.Vector(0,0,0))
+                            else:
+                                shape.Placement = selected_obj.getGlobalPlacement()
+                            
+                            mesh = MeshPart.meshFromShape(Shape=shape, LinearDeflection=surface, AngularDeflection=angular, Relative=relative)
+                            combined_mesh.addMesh(mesh)
+                            mesh_list.append(mesh)
+                            object_names.append(selected_obj.Label)
+                        except Exception as e:
+                            if dev_mode:
+                                self.message("  Could not mesh {}: {}".format(selected_obj.Label, str(e)))
                 
                 # Determine assembly filename
                 if self.d7a.isChecked():
@@ -1013,13 +1061,18 @@ class BatchExportToMesh(QtGui.QDockWidget):
                     filename = os.path.join(savePath, final_name + ".stl")
                     combined_mesh.write(filename)
                 if self.d5.currentText() == "Alias mesh (.OBJ)":
+                    # Write OBJ with separate named objects for each part
                     filename = os.path.join(savePath, final_name + ".obj")
-                    combined_mesh.write(filename)
+                    self.writeObjAssembly(filename, mesh_list, object_names)
+                if self.d5.currentText() == "3D Manufacturing Format (.3MF)":
+                    # Write 3MF assembly (no external deps)
+                    filename = os.path.join(savePath, final_name + ".3mf")
+                    self.write3mfAssembly(filename, mesh_list, object_names)
                 
                 if dev_mode:
                     self.message("\n-- Assembly exported to: " + filename + " --")
                 
-                self.infoMessages(str(quantity) + " objects combined into assembly","positive")
+                self.infoMessages(str(len(mesh_list)) + " objects combined into assembly","positive")
             
             # Individual files mode (original behavior)
             else:
@@ -1080,6 +1133,121 @@ class BatchExportToMesh(QtGui.QDockWidget):
         App.ActiveDocument.recompute()
         if dev_mode:
             self.message("\n********* END *********")
+
+    def writeObjAssembly(self, file_path, meshes, object_names):
+        """
+        Write multiple meshes to OBJ file with separate object groups.
+        Each mesh becomes a named object in the OBJ file (useful for Blender import and slicers).
+
+        This function writes both `g <name>` and `o <name>` markers and sanitizes names
+        to use underscores for compatibility with OrcaSlicer and other importers.
+        """
+        import re
+        with open(file_path, 'w') as f:
+            f.write("# Exported from FreeCAD - Assembly Mode\n")
+            f.write("# {} object(s)\n\n".format(len(meshes)))
+            
+            vertex_offset = 0
+            used_names = {}
+            
+            for mesh, obj_name in zip(meshes, object_names):
+                # Sanitize object name: replace non-alphanumeric with underscore
+                safe_name = re.sub(r'[^0-9A-Za-z_\-]', '_', str(obj_name).strip())
+                if safe_name == "":
+                    safe_name = "object"
+                # Ensure unique names if duplicates occur
+                if safe_name in used_names:
+                    used_names[safe_name] += 1
+                    safe_name = f"{safe_name}_{used_names[safe_name]}"
+                else:
+                    used_names[safe_name] = 0
+
+                # Write group and object markers (g and o) for slicer compatibility
+                f.write(f"g {safe_name}\n")
+                f.write(f"o {safe_name}\n")
+                # Also write a usemtl marker to help slicers (like OrcaSlicer) and parsers split faces by material/object
+                f.write(f"usemtl {safe_name}\n")
+                
+                # Write vertices
+                for point in mesh.Points:
+                    f.write("v {} {} {}\n".format(point.x, point.y, point.z))
+                
+                # Write faces (OBJ uses 1-based indexing)
+                for facet in mesh.Facets:
+                    indices = facet.PointIndices
+                    f.write("f {} {} {}\n".format(
+                        indices[0] + 1 + vertex_offset,
+                        indices[1] + 1 + vertex_offset,
+                        indices[2] + 1 + vertex_offset
+                    ))
+                
+                vertex_offset += len(mesh.Points)
+                f.write("\n")
+                f.write("\n")
+
+    def write3mfAssembly(self, file_path, meshes, object_names):
+        """
+        Minimal 3MF writer using only Python stdlib.
+        Writes one 3MF file with a mesh object per entry in meshes/object_names
+        encoding simple assembly structure (objects + build items). This avoids
+        external dependencies so it runs inside FreeCAD's Python.
+        """
+        import xml.etree.ElementTree as ET
+        import zipfile
+        import re
+
+        # Helper: sanitize name
+        def _safe(name):
+            s = re.sub(r'[^0-9A-Za-z_\-]', '_', str(name).strip())
+            return s if s else 'object'
+
+        model = ET.Element('model')
+        model.set('unit', 'millimeter')
+        resources = ET.SubElement(model, 'resources')
+
+        # Create mesh resources (each as an object)
+        for idx, (mesh, obj_name) in enumerate(zip(meshes, object_names), start=1):
+            safe_name = _safe(obj_name)
+            obj = ET.SubElement(resources, 'object')
+            obj.set('id', str(idx))
+            obj.set('type', 'model')
+            obj.set('name', safe_name)
+            mesh_el = ET.SubElement(obj, 'mesh')
+
+            # vertices
+            verts_el = ET.SubElement(mesh_el, 'vertices')
+            for p in mesh.Points:
+                v = ET.SubElement(verts_el, 'vertex')
+                v.set('x', str(p.x))
+                v.set('y', str(p.y))
+                v.set('z', str(p.z))
+
+            # triangles
+            tris_el = ET.SubElement(mesh_el, 'triangles')
+            for facet in mesh.Facets:
+                t = ET.SubElement(tris_el, 'triangle')
+                indices = facet.PointIndices
+                t.set('v1', str(indices[0]))
+                t.set('v2', str(indices[1]))
+                t.set('v3', str(indices[2]))
+
+        # Build section (add items referencing objects)
+        build = ET.SubElement(model, 'build')
+        for idx in range(1, len(meshes) + 1):
+            item = ET.SubElement(build, 'item')
+            item.set('objectid', str(idx))
+
+        # Serialize XML
+        model_xml = ET.tostring(model, encoding='utf-8', method='xml')
+
+        # Content types file
+        content_types = b'<?xml version="1.0" encoding="utf-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n</Types>'
+
+        # Write zip (.3mf)
+        with zipfile.ZipFile(file_path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+            z.writestr('[Content_Types].xml', content_types)
+            z.writestr('3D/3dmodel.model', model_xml)
+
 
     def clear_console(self):
         #clearing previous messages
