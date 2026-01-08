@@ -1209,17 +1209,18 @@ class BatchExportToMesh(QtGui.QDockWidget):
             s = re.sub(r'[^0-9A-Za-z_\-]', '_', str(name).strip())
             return s if s else 'object'
 
-        # Group meshes by part prefix if present
+        # Group meshes using structured mesh_infos (dicts with 'part','body','mesh')
         grouped = defaultdict(list)  # part_name -> list of (body_name, mesh)
         single_objects = []  # (name, mesh) for objects without a part prefix
 
-        for mesh, obj_name in zip(meshes, object_names):
-            # Try splitting on the first underscore to detect Part_Body convention
-            if '_' in obj_name:
-                part, child = obj_name.split('_', 1)
-                grouped[part].append((child, mesh))
+        for info in mesh_infos:
+            mesh = info.get('mesh')
+            part_name = info.get('part')
+            body_name = info.get('body')
+            if part_name:
+                grouped[part_name].append((body_name, mesh))
             else:
-                single_objects.append((obj_name, mesh))
+                single_objects.append((body_name, mesh))
 
         # Create model root with required namespace
         NS = 'http://schemas.microsoft.com/3dmanufacturing/2013/01'
