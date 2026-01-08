@@ -42,7 +42,7 @@ __Icon__  = "/usr/lib/freecad/Mod/Mesh/Resources/icons/MeshWorkbench.svg"
 # __IconW__  = "C:/Documents and Settings/YourUserName/Application Data/FreeCAD"
 __Help__ = "https://forum.freecadweb.org/viewtopic.php?f=22&t=41219"
 __Status__ = "stable"
-__Requires__ = "FreeCAD >= 1.1"
+__Requires__ = "FreeCAD >= 1.1.0"
 __Communication__ = "https://github.com/pgilfernandez/FreeCAD_Macro_Batch_Export_To_Mesh"
 
 import FreeCAD, FreeCADGui, Part, Mesh, MeshPart, Import, os, math
@@ -367,7 +367,7 @@ class BatchExportToMesh(QtGui.QDockWidget):
         iN10.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         self.d9 = QtGui.QCheckBox()
         self.d9.setChecked(False)
-        self.d9.setToolTip("If checked: export a single assembly file.\n- STL: all geometry combined into one mesh.\n- OBJ: one .obj with named groups (may be split by slicers if objects contain disconnected components).\n- 3MF: preserves Part->Body hierarchy (recommended for slicer object grouping).\nIf unchecked: each selected object (or Part container) is exported as separate files (STL/OBJ/3MF supported; 3MF will write one .3mf per object).")
+        self.d9.setToolTip("If checked: export a single assembly file.\n- STL: all meshes combined into one file.\n- OBJ: one .obj with named groups based on part names (useful to import assembly into Blender).\n- 3MF: preserves Part->Body hierarchy (recommended for slicer object grouping).\nIf unchecked: each selected object (or Part container) is exported as separate files (STL/OBJ/3MF supported; 3MF will write one .3mf per object).")
 
         # Presets
         iN9 = QtGui.QLabel("Preset:")
